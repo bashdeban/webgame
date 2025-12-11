@@ -1,0 +1,1502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>深渊自由潜水 (Hardcore Mode)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas { display: block; }
+        
+        /* UI 层 */
+        #ui-layer {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+        .hud-top {
+            padding: 10px; color: white; text-shadow: 1px 1px 2px black;
+            display: flex; justify-content: space-between; font-weight: bold;
+        }
+        .hud-bars { pointer-events: none; padding: 10px; width: 200px; }
+        .bar-container {
+            margin-bottom: 5px; background: rgba(0,0,0,0.5); height: 12px;
+            border-radius: 6px; border: 1px solid #fff; position: relative;
+        }
+        .bar-fill { height: 100%; border-radius: 5px; transition: width 0.1s linear; }
+        #o2-bar { background: #00ff00; }
+        #pressure-bar { background: #ffaa00; width: 0%; }
+        #stamina-bar { background: #00ccff; }
+        
+        /* 交互层 */
+        #interactive-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; align-items: center; justify-content: center;
+        }
+        button {
+            pointer-events: auto; background: #fff; border: 2px solid #333;
+            padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 8px;
+            font-weight: bold; box-shadow: 0 4px 0 #999;
+        }
+        button:active { transform: translateY(4px); box-shadow: 0 0 0 #999; }
+        
+        .menu-box {
+            background: rgba(0, 20, 40, 0.95); padding: 25px; border-radius: 15px;
+            color: white; text-align: center; border: 2px solid #4a90e2;
+            pointer-events: auto; max-width: 85%;width:300px;
+            box-shadow: 0 0 30px rgba(0,100,255,0.3);
+        }
+        .hidden { display: none !important; }
+        
+        .shop-item {
+            display: flex; justify-content: space-between; margin: 10px 0; padding: 10px;
+            background: rgba(255,255,255,0.1); border-radius: 5px; font-size: 14px;
+        }
+        .shop-btn {
+            background: #4caf50; color: white; border: none; padding: 5px 10px;
+            font-size: 12px; box-shadow: 0 2px 0 #2e7d32;
+        }
+        .shop-btn:disabled { background: #555; box-shadow: none; cursor: not-allowed; }
+
+        #equalize-btn {
+            background: #ff3333; color: white; width: 140px; height: 140px;
+            border-radius: 50%; font-size: 20px; font-weight: 900;
+            border: 4px solid white; box-shadow: 0 0 30px rgba(255, 0, 0, 0.6);
+            animation: pulse 0.4s infinite alternate; z-index: 100;
+        }
+        @keyframes pulse { 0% { transform: scale(1); } 100% { transform: scale(1.1); } }
+        
+        #msg-toast {
+            position: absolute; top: 25%; width: 100%; text-align: center;
+            color: #ffeb3b; font-size: 26px; font-weight: bold;
+            text-shadow: 0 0 5px #000, 2px 2px 0px #000;
+            pointer-events: none; opacity: 0; transition: opacity 0.5s;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div>
+                深度: <span id="depth-display">0.0</span> m<br>
+                最佳: <span id="best-display">0.0</span> m
+            </div>
+            <div style="text-align: right;">
+                Lv.<span id="level-display">1</span> <br>
+                金币: <span id="coin-display">0</span><br>
+                经验: <span id="xp-display">0</span>
+            </div>
+        </div>
+        <div class="hud-bars">
+            <div style="color:white; font-size:12px;">氧气 (O2)</div>
+            <div class="bar-container"><div id="o2-bar" class="bar-fill" style="width: 100%;"></div></div>
+            <div style="color:white; font-size:12px;">耳压 (警报)</div>
+            <div class="bar-container"><div id="pressure-bar" class="bar-fill"></div></div>
+            <div style="color:white; font-size:12px;">体力</div>
+            <div class="bar-container"><div id="stamina-bar" class="bar-fill" style="width: 100%;"></div></div>
+        </div>
+    </div>
+
+    <div id="interactive-layer">
+        <!-- 主菜单 -->
+        <div id="main-menu" class="menu-box">
+            <h1 style="margin: 0 0 10px 0;">深渊自由潜水</h1>
+            <p style="color:#aaa;">Hardcore Update</p>
+            <div style="margin: 20px 0; font-size: 14px; color: #ddd; line-height: 1.6; text-align: left; padding: 0 10px;">
+                1. 点击屏幕控制游动。<br>
+                2. 深度增加触发耳压 -> <b>点按钮消除</b>。<br>
+                3. <b style="color:#ff4444">警告：</b> 氧气耗尽死亡将<b>失去</b>本次所有金币和经验。<br>
+                4. 必须<b>活着浮出水面</b>才能带走战利品！
+            </div>
+            <button onclick="game.startDive()" style="width: 200px; padding: 15px; color:#0055aa;">开始下潜</button>
+            <br><br>
+            <button onclick="game.openSettings()">⚙️设置</button>
+            <button onclick="game.openShop()">装备商店</button>
+        </div>
+
+        <!-- 商店 -->
+        <div id="shop-menu" class="menu-box hidden">
+            <h2>潜水商店</h2>
+            <div id="shop-list"></div>
+            <button onclick="game.closeShop()" style="background:#888;">返回</button>
+        </div>
+
+        <!-- 设置 -->
+        <div id="settings-menu" class="menu-box hidden">
+            <h2>设置</h2>
+            <div style="margin: 20px 0; text-align: left;">
+                <div style="margin-bottom: 15px;">
+                    <label style="color: white; font-weight: bold;">语言 / Language:</label>
+                    <select id="language-select" style="width: 100%; margin-top: 5px; padding: 5px; background: rgba(255,255,255,0.9); border: 1px solid #333; border-radius: 4px;">
+                        <option value="zh">中文</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+                <div style="margin-top: 20px;">
+                    <button id="reset-data-btn" style="background: #ff4444; color: white; width: 100%; padding: 10px;">重置游戏数据</button>
+                </div>
+            </div>
+            <button onclick="game.closeSettings()" style="background:#888;">返回</button>
+        </div>
+
+        <!-- 重置确认对话框 -->
+        <div id="reset-confirm" class="menu-box hidden" style="max-width: 400px;">
+            <h2 style="color: #ff4444;">确认重置</h2>
+            <p style="margin: 15px 0; color: #ffeb3b;">警告：这将清除所有游戏数据，包括：</p>
+            <div style="text-align: left; margin: 15px 0; color: #ddd; font-size: 14px;">
+                • 等级和经验值<br>
+                • 所有金币<br>
+                • 最佳深度记录<br>
+                • 已购买的装备<br>
+                • 所有游戏进度
+            </div>
+            <p style="color: #ff4444; font-weight: bold;">此操作不可恢复！</p>
+            <div style="margin-top: 20px;">
+                <button onclick="game.confirmReset()" style="background: #ff4444; color: white; margin-right: 10px;">确认重置</button>
+                <button onclick="game.cancelReset()" style="background: #888;">取消</button>
+            </div>
+        </div>
+
+        <!-- 耳压按钮 -->
+        <button id="equalize-btn" class="hidden" onclick="game.player.doEqualize()">平衡耳压!<br>(点一下)</button>
+
+        <!-- 结算界面 -->
+        <div id="result-menu" class="menu-box hidden">
+            <h2 id="result-title">潜水结束</h2>
+            <p id="result-desc" style="font-size: 18px; margin: 20px 0; color: #ffeb3b;"></p>
+            <div style="background:rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; margin-bottom: 20px;">
+                <p>本次深度: <span id="res-depth" style="font-weight:bold;">0</span>m</p>
+                <p>获得金币: <span id="res-coins">0</span></p>
+                <p>获得经验: <span id="res-xp">0</span></p>
+            </div>
+            <button onclick="game.returnToMenu()">确定</button>
+        </div>
+
+        <!-- 恢复提示 -->
+        <div id="recovery-msg" class="menu-box hidden" style="background: rgba(0,0,0,0.5); border:none;">
+            <h2 style="color:#00ccff;">正在恢复...</h2>
+            <p>保持静止呼吸，不要乱动</p>
+            <div class="bar-container" style="width: 200px; margin: 10px auto;">
+                <div id="recovery-bar" class="bar-fill" style="width: 0%; background: #00ccff;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="msg-toast"></div>
+
+<script>
+/**
+ * Internationalization System
+ */
+const I18N = {
+    currentLang: 'en',
+    
+    translations: {
+        zh: {
+            // 主菜单
+            gameTitle: '深渊自由潜水',
+            hardcoreUpdate: 'Hardcore Update',
+            instructions: '1. 点击屏幕控制游动。<br>2. 深度增加触发耳压 -> <b>点按钮消除</b>。<br>3. <b style="color:#ff4444">警告：</b> 氧气耗尽死亡将<b>失去</b>本次所有金币和经验。<br>4. 必须<b>活着浮出水面</b>才能带走战利品！',
+            startDive: '开始下潜',
+            settings: '设置',
+            equipmentShop: '装备商店',
+            
+            // HUD显示
+            depth: '深度',
+            best: '最佳',
+            coins: '金币',
+            experience: '经验',
+            o2: '氧气 (O2)',
+            earPressure: '耳压 (警报)',
+            stamina: '体力',
+            
+            // 商店
+            shopTitle: '潜水商店',
+            currentCoins: '当前金币:',
+            equipped: '已装备',
+            owned: '已拥有',
+            buy: '购买',
+            return: '返回',
+            
+            // 装备名称
+            fins: [
+                "光脚",
+                "沙滩蹼", 
+                "洞穴短蹼",
+                "分水蹼",
+                "镰刀蹼",
+                "玻纤长蹼",
+                "碳纤长蹼"
+            ],
+            
+            // 设置
+            settingsTitle: '设置',
+            language: '语言 / Language:',
+            resetData: '重置游戏数据',
+            confirmResetTitle: '确认重置',
+            resetWarning: '警告：这将清除所有游戏数据，包括：',
+            resetItemList: '• 等级和经验值<br>• 所有金币<br>• 最佳深度记录<br>• 已购买的装备<br>• 所有游戏进度',
+            resetIrreversible: '此操作不可恢复！',
+            confirmReset: '确认重置',
+            cancel: '取消',
+            
+            // 耳压按钮
+            equalizeBtn: '平衡耳压!<br>(点一下)',
+            equalizeSuccess: '耳压平衡成功!',
+            
+            // 结果界面
+            diveEnded: '潜水结束',
+            challengeFailed: '挑战失败',
+            allLootLost: '所有战利品丢失！',
+            safeSurfacing: '安全出水',
+            perfectRule: '完美遵守1/3法则! 奖励x1.5',
+            successWarning: '成功，但下次记得留更多氧气。',
+            thisDepth: '本次深度:',
+            coinsGained: '获得金币:',
+            xpGained: '获得经验:',
+            confirm: '确定',
+            
+            // 恢复界面
+            recovering: '正在恢复...',
+            keepStill: '保持静止呼吸，不要乱动',
+            
+            // 游戏提示
+            pickupCoins: '拾取 {0} 金币',
+            foundTreasure: '发现宝箱! 获得 {0} 金币!',
+            observeFish: '观察生物 +{0} XP',
+            levelUp: '升级! Lv.{0} (氧气++!)',
+            gameOverReason: '氧气耗尽，意识丧失！'
+        },
+        
+        en: {
+            // Main menu
+            gameTitle: 'Abyss Freediving',
+            hardcoreUpdate: 'Hardcore Update',
+            instructions: '1. Tap screen to swim.<br>2. Depth triggers ear pressure -> <b>press button to equalize</b>.<br>3. <b style="color:#ff4444">Warning:</b> Dying from oxygen loss will <b>lose</b> all coins and XP from this dive.<br>4. Must <b>survive and surface</b> to keep your loot!',
+            startDive: 'Start Dive',
+            settings: 'Settings',
+            equipmentShop: 'Equipment Shop',
+            
+            // HUD display
+            depth: 'Depth',
+            best: 'Best',
+            coins: 'Coins',
+            experience: 'EXP',
+            o2: 'Oxygen (O2)',
+            earPressure: 'Ear Pressure',
+            stamina: 'Stamina',
+            
+            // Shop
+            shopTitle: 'Diving Shop',
+            currentCoins: 'Current Coins:',
+            equipped: 'Equipped',
+            owned: 'Owned',
+            buy: 'Buy',
+            return: 'Return',
+            
+            // Equipment names
+            fins: [
+                "Barefoot",
+                "Beach Fins",
+                "Cave Short Fins", 
+                "Split Fins",
+                "Blade Fins",
+                "Fiberglass Long Fins",
+                "Carbon Long Fins"
+            ],
+            
+            // Settings
+            settingsTitle: 'Settings',
+            language: 'Language / 语言:',
+            resetData: 'Reset Game Data',
+            confirmResetTitle: 'Confirm Reset',
+            resetWarning: 'Warning: This will clear all game data including:',
+            resetItemList: '• Level and experience<br>• All coins<br>• Best depth records<br>• Purchased equipment<br>• All game progress',
+            resetIrreversible: 'This action cannot be undone!',
+            confirmReset: 'Confirm Reset',
+            cancel: 'Cancel',
+            
+            // Ear pressure button
+            equalizeBtn: 'Equalize!<br>(Tap once)',
+            equalizeSuccess: 'Ear pressure equalized!',
+            
+            // Result screen
+            diveEnded: 'Dive Complete',
+            challengeFailed: 'Challenge Failed',
+            allLootLost: 'All loot lost!',
+            safeSurfacing: 'Safe Surfacing',
+            perfectRule: 'Perfect 1/3 rule! Bonus x1.5',
+            successWarning: 'Success, but remember to save more oxygen next time.',
+            thisDepth: 'This Depth:',
+            coinsGained: 'Coins Gained:',
+            xpGained: 'XP Gained:',
+            confirm: 'Confirm',
+            
+            // Recovery screen
+            recovering: 'Recovering...',
+            keepStill: 'Stay still and breathe, don\'t move',
+            
+            // Game messages
+            pickupCoins: 'Collected {0} coins',
+            foundTreasure: 'Found treasure! Gained {0} coins!',
+            observeFish: 'Observed creature +{0} XP',
+            levelUp: 'Level Up! Lv.{0} (Oxygen++!)',
+            gameOverReason: 'Out of oxygen, lost consciousness!'
+        }
+    },
+    
+    // Get translated text
+    t: function(key, ...args) {
+        const keys = key.split('.');
+        let value = this.translations[this.currentLang];
+        
+        for (const k of keys) {
+            if (value && value[k] !== undefined) {
+                value = value[k];
+            } else {
+                return key; // Return key if translation not found
+            }
+        }
+        
+        // Handle array indexing (like fins[0])
+        if (typeof value === 'function') {
+            return value.apply(this, args);
+        }
+        
+        // Replace placeholders {0}, {1}, etc. with arguments
+        if (typeof value === 'string' && args.length > 0) {
+            return value.replace(/\{(\d+)\}/g, (match, index) => {
+                return args[index] !== undefined ? args[index] : match;
+            });
+        }
+        
+        return value;
+    },
+    
+    // Set language and update UI
+    setLanguage: function(lang) {
+        if (this.translations[lang]) {
+            this.currentLang = lang;
+            localStorage.setItem('freedive_language', lang);
+            document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+            
+            // Trigger language change event instead of direct call
+            window.dispatchEvent(new CustomEvent('languageChanged', { 
+                detail: { lang } 
+            }));
+            
+            console.log(`Language changed to: ${lang}, document.lang: ${document.documentElement.lang}`);
+        }
+    },
+    
+    // Initialize language from localStorage
+    init: function() {
+        const savedLang = localStorage.getItem('freedive_language');
+        if (savedLang && this.translations[savedLang]) {
+            this.setLanguage(savedLang);
+        } else {
+            // Default to English, auto-detect browser language as fallback
+            const browserLang = navigator.language || navigator.userLanguage;
+
+            console.log(`nav.lang: ${navigator.language} - nav.user.lang: ${navigator.userLanguage} browser:${browserLang}`);
+            if (browserLang && browserLang.startsWith('en')) {
+                this.setLanguage('en');
+                console.log(`----en`);
+            } else {
+                this.setLanguage('zh');
+            }
+        }
+    }
+};
+
+/**
+ * Game Configuration
+ */
+const CONFIG = {
+    METER_SCALE: 100,       // 10 pixels = 1 meter
+    GRAVITY: 0.002,        // Slight gravity
+    BUOYANCY: 0.003,        // Slight buoyancy (slow ascent)
+    CLICK_FORCE_MULTIPLIER: 1.0, // Strong thrust
+    FRICTION: 0.99,        // Water resistance
+    
+    // --- Oxygen configuration (changed: removed depth factor) ---
+    BASE_O2_CONSUMPTION: 0.01, // Base oxygen consumption (constant)
+    MOVE_O2_COST: 0.03,         // Oxygen cost per kick (action cost)
+    // [New] Dynamic oxygen consumption parameters
+    MOVE_O2_MIN: 0.5,       // Slow kick consumption (most efficient)
+    MOVE_O2_MAX: 25.5,        // Rapid clicking consumption (penalty value, was 0.15, now rapid clicking is 10x consumption!)
+    EFFICIENCY_WINDOW: 800,  // Efficiency window (milliseconds). Above this interval counts as slow, below it as fast.
+
+    BUOYANCY_DELAY_MS: 2000, // Ascent delay (milliseconds)
+
+    STAMINA_REGEN: 0.3,
+    EAR_PRESSURE_INTERVAL: 5, 
+    RECOVERY_TIME: 300,
+    
+    // --- Ear pressure probability configuration ---
+    EAR_PRESSURE_DEPTH_FACTOR_BASE: 0.6,      // Depth factor base value
+    EAR_PRESSURE_DEPTH_FACTOR_MAX: 0.95,      // Depth factor maximum value (at 100m depth)
+    EAR_PRESSURE_DEPTH_DIVISOR: 100,          // Depth divisor (depth/100)
+    EAR_PRESSURE_LEVEL_FACTOR_BASE: 0.2,      // Level factor minimum value
+    EAR_PRESSURE_LEVEL_REDUCTION_PER_LEVEL: 0.04, // Probability reduction factor per level
+
+    GOLD_BOX_PROBABILITY: 0.5,   // Treasure appearance probability
+    GOLD_BOX_MULTIPLE: 20,
+};
+
+// Audio System
+const AudioSys = {
+    ctx: null,
+    init: function() {
+        if(!this.ctx) {
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioContext();
+        }
+        if(this.ctx.state === 'suspended') this.ctx.resume();
+    },
+    playTone: function(freq, type, duration, vol=0.1) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+    },
+    playBubble: function() { this.playTone(100 + Math.random()*100, 'sine', 0.3, 0.2); },
+    playAlert: function() { this.playTone(600, 'sawtooth', 0.15, 0.1); setTimeout(() => this.playTone(800, 'sawtooth', 0.15, 0.1), 150); },
+    playCoin: function() { this.playTone(1200, 'sine', 0.4, 0.1); setTimeout(() => this.playTone(1800, 'sine', 0.4, 0.1), 100); },
+    playSuccess: function() { this.playTone(400, 'sine', 0.2); setTimeout(() => this.playTone(600, 'sine', 0.4), 200); }
+};
+
+// Save System
+const SaveSys = {
+    save: function(data) { localStorage.setItem('freedive_hardcore_save', JSON.stringify(data)); },
+    load: function() { const d = localStorage.getItem('freedive_hardcore_save'); return d ? JSON.parse(d) : null; }
+};
+
+class Player {
+    constructor(game) {
+        this.game = game;
+        this.finNames = [
+            "光脚",
+            "沙滩蹼",
+            "洞穴短蹼",
+            "分水蹼",
+            "镰刀蹼",
+            "玻纤长蹼",
+            "碳纤长蹼"
+        ];
+        this.finThrust = [1.0, 1.2, 1.5, 2.0, 2.5, 3, 4];
+        this.finCost = [0, 20, 60, 150, 250, 500, 1000];
+        
+        // Permanent attributes
+        this.level = 1;
+        this.xp = 0;
+        this.xpToNext = 100;
+        this.totalCoins = 0;
+        this.bestDepth = 0;
+        this.finsLevel = 0;
+        
+        // In-game temporary variables
+        this.maxO2 = 100;
+        
+        this.loadData();
+        this.reset();
+    }
+
+    loadData() {
+        const data = SaveSys.load();
+        if (data) {
+            this.level = data.level || 1;
+            this.xp = data.xp || 0;
+            this.totalCoins = data.coins || 0;
+            this.bestDepth = data.bestDepth || 0;
+            this.finsLevel = data.fins || 0;
+            this.updateStatsByLevel();
+        }
+    }
+
+    saveData() {
+        SaveSys.save({
+            level: this.level,
+            xp: this.xp,
+            coins: this.totalCoins,
+            bestDepth: this.bestDepth,
+            fins: this.finsLevel
+        });
+    }
+
+    // Calculate attributes based on level
+    updateStatsByLevel() {
+        // Change: Each level up increases oxygen by 25 points (was 20-25)
+        this.maxO2 = 100 + (this.level - 1) * 25; 
+        this.eqInterval = CONFIG.EAR_PRESSURE_INTERVAL * (1 + (this.level-1)*0.1);
+    }
+
+    reset() {
+        this.x = window.innerWidth / 2;
+        this.y = 150; 
+        this.vx = 0;
+        this.vy = 0;
+        this.lastThrustTime = 0; // Record timestamp of last kick
+        this.updateStatsByLevel();
+        this.o2 = this.maxO2;
+        this.stamina = 100;
+        this.pressure = 0;
+        this.depth = 0;
+        this.maxDepthThisDive = 0;
+        
+        // Temporary inventory (cleared on death)
+        this.coinsCollected = 0;
+        this.xpCollected = 0;
+        
+        this.isEqualizing = false;
+        this.lastEqDepth = 0;
+
+        // --- Debug log (Requested) ---
+        console.group("=== 🎮 Game Initialization Debug Data ===");
+        console.log(`%c Current Level: ${this.level}`, "color: #00ccff; font-weight: bold;");
+        console.log(`%c Total Oxygen: ${this.maxO2}`, "color: #00ff00; font-weight: bold;");
+        console.log(`%c Equipment Thrust: ${this.finThrust[this.finsLevel]} (Lv.${this.finsLevel})`, "color: #ffaa00;");
+        console.log(`Ear Pressure Interval: ${this.eqInterval.toFixed(1)}m`);
+        console.log(`Max XP Required for Dive: ${this.xpToNext}`);
+        console.log("Game Configuration CONFIG:", CONFIG);
+        console.groupEnd();
+    }
+
+    update() {
+        if (this.o2 <= 0) {
+            this.o2 = 0;
+            this.game.gameOver(I18N.t('gameOverReason'));
+            return;
+        }
+
+        // 物理
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx *= CONFIG.FRICTION;
+        this.vy *= CONFIG.FRICTION;
+
+        // 深度
+        let rawDepth = (this.y - 150) / CONFIG.METER_SCALE;
+        this.depth = rawDepth < 0 ? 0 : rawDepth;
+        if (this.depth > this.maxDepthThisDive) this.maxDepthThisDive = this.depth;
+
+        // 浮力
+        if (this.depth > 0) {
+            // 下潜阻力/浮力
+            if (this.vy > 0) { // 下潜中
+                 // 稍微有点浮力抵抗
+                 this.vy -= CONFIG.BUOYANCY * 0.2;
+                if (this.pressure<100) this.pressure = this.pressure+CONFIG.EAR_PRESSURE_DEPTH_FACTOR_BASE/2/this.level;
+
+                 
+            } else { // 上浮中
+                 this.vy -= CONFIG.BUOYANCY; // 助浮
+                 if (this.pressure>0) this.pressure = this.pressure-CONFIG.EAR_PRESSURE_DEPTH_FACTOR_BASE/this.level;
+            }
+        }
+        // // 浮力与重力逻辑 (修改版)
+        // if (this.depth > 0) {
+        //     // 1. 重力永远生效 (让你在延迟期间会微微下沉，而不是定住，更真实)
+        //     this.vy += CONFIG.GRAVITY; 
+
+        //     // 2. 检查是否过了延迟时间
+        //     let timeSinceMove = Date.now() - this.lastThrustTime;
+            
+        //     if (timeSinceMove > CONFIG.BUOYANCY_DELAY_MS) {
+        //         // 只有超过 2秒 没动，才施加浮力
+        //         this.vy -= CONFIG.BUOYANCY; 
+        //     }
+        // }
+
+        // --- 氧气消耗 (修改点：不随深度增加) ---
+        if (this.depth > 0) {
+            // 基础消耗 + 运动消耗 (速度越快消耗越多)
+            let moveIntensity = (Math.abs(this.vx) + Math.abs(this.vy));
+            this.o2 -= (CONFIG.BASE_O2_CONSUMPTION + moveIntensity * 0.002);
+        } else {
+            if (this.o2 < this.maxO2) this.o2 += 0.8;
+            this.pressure = 0;
+            this.stamina = Math.min(100, this.stamina + 1);
+        }
+
+        // 体力
+        if (this.depth > 0 && this.stamina < 100) this.stamina += CONFIG.STAMINA_REGEN;
+
+        // 耳压 - 智能概率机制
+        if (this.depth > 0 && this.depth > this.lastEqDepth + this.eqInterval) {
+            // 计算耳压触发概率 - 使用CONFIG参数
+            let depthFactor = Math.min(this.depth / CONFIG.EAR_PRESSURE_DEPTH_DIVISOR, CONFIG.EAR_PRESSURE_DEPTH_FACTOR_MAX) + CONFIG.EAR_PRESSURE_DEPTH_FACTOR_BASE;
+            let levelFactor = Math.max(CONFIG.EAR_PRESSURE_LEVEL_FACTOR_BASE, 1 - (this.level - 1) * CONFIG.EAR_PRESSURE_LEVEL_REDUCTION_PER_LEVEL);
+            let triggerProbability = depthFactor * levelFactor; // 最终概率
+            
+            // 随机判定是否触发耳压
+            let randomRoll = Math.random();
+            let shouldTrigger = randomRoll < triggerProbability;
+            
+            // 调试信息
+            console.log(`耳压判定 - 深度:${this.depth.toFixed(1)}m 等级:${this.level} 深度因子:${depthFactor.toFixed(2)} 等级因子:${levelFactor.toFixed(2)} 概率:${(triggerProbability*100).toFixed(1)}% 骰子:${(randomRoll*100).toFixed(1)}% ${shouldTrigger ? '触发' : '跳过'} ${triggerProbability}`);
+            if (shouldTrigger) {
+                this.pressure += 30;
+                if (this.pressure>100) this.pressure = 100;
+            }
+            if (this.pressure >= 100) {
+                if (!this.isEqualizing) this.game.triggerEqualize();
+            }
+            // 无论是否触发，都更新上次检查深度
+            this.lastEqDepth = this.depth;
+        }
+        
+        // 边界
+        if (this.x < 0) { this.x = 0; this.vx *= -0.5; }
+        if (this.x > window.innerWidth) { this.x = window.innerWidth; this.vx *= -0.5; }
+        if (this.y < 150) { 
+            this.y = 150; this.vy = 0;
+            if (this.game.state === 'DIVING' && this.maxDepthThisDive > 2) {
+                this.game.startRecovery();
+            }
+        }
+    }
+
+    applyForce(angle) {
+        // 状态检查
+        if (this.stamina < 5 || this.isEqualizing || this.o2 <= 0) return;
+        
+        let now = Date.now();
+        // 计算距离上次打脚的时间间隔 (dt)
+        // 如果是第一次点击，lastThrustTime可能是0，导致dt巨大，这就默认算作"最省油"的一脚
+        let dt = now - this.lastThrustTime;
+        if (dt > 10000) dt = CONFIG.EFFICIENCY_WINDOW; // 防止初始数值异常
+        
+        // --- [新增] 动态氧气计算逻辑 ---
+        
+        // 1. 计算效率系数 (0.0 = 极快/累, 1.0 = 慢/轻松)
+        // 如果间隔大于窗口(800ms)，系数为1；如果间隔是0，系数为0。
+        let efficiency = Math.min(dt / CONFIG.EFFICIENCY_WINDOW, 1.0);
+        
+        // 2. 线性插值计算消耗
+        // 效率越高(1.0)，消耗越接近 MIN
+        // 效率越低(0.0)，消耗越接近 MAX
+        let actualCost = CONFIG.MOVE_O2_MAX - (CONFIG.MOVE_O2_MAX - CONFIG.MOVE_O2_MIN) * efficiency;
+        
+        // 3. 扣除氧气
+        this.o2 -= actualCost;
+        
+        // ------------------------------
+
+        // 更新时间戳 (这行非常重要，既用于氧气计算，也用于之前的上浮延迟)
+        this.lastThrustTime = now;
+
+        // 物理推力
+        let thrust = this.finThrust[this.finsLevel];
+        this.vx += Math.cos(angle) * thrust * CONFIG.CLICK_FORCE_MULTIPLIER;
+        this.vy += Math.sin(angle) * thrust * CONFIG.CLICK_FORCE_MULTIPLIER;
+        
+        this.stamina -= 8;
+        
+        // 生成气泡效果 - 只有深度超过1米时才生成气泡
+        if (this.depth > 1) {
+            let bubbleCount = Math.floor(2 + (1 - efficiency) * 4); // 2-6个气泡，效率越低（快速打腿）气泡越多
+            let finLen = 12 + this.finsLevel * this.finsLevel * 2;
+            // 计算脚蹼末端位置
+            let finEndX = this.x + Math.sin(angle) * (30 + finLen);
+            let finEndY = this.y + Math.cos(angle) * (30 + finLen);
+            this.game.bubbleManager.spawnBubbles(finEndX, finEndY, bubbleCount);
+        }
+        
+        // [可选调试] 这种写法可以在控制台看到每次点击的代价
+        // console.log(`间隔: ${dt}ms, 消耗O2: ${actualCost.toFixed(2)}`);
+        
+        AudioSys.playBubble();
+    }
+
+    doEqualize() {
+        this.pressure = 0;
+        this.lastEqDepth = this.depth;
+        this.game.endEqualize();
+        this.game.toast(I18N.t('equalizeSuccess'));
+        AudioSys.playBubble();
+    }
+
+    checkLevelUp(notify = true) {
+        if (this.xp >= this.xpToNext) {
+            this.level++;
+            this.xp -= this.xpToNext;
+            this.xpToNext = Math.floor(this.xpToNext * 1.5);
+            this.updateStatsByLevel();
+            if (notify) this.game.toast(I18N.t('levelUp', this.level));
+            this.checkLevelUp(notify);
+        }
+    }
+}
+
+class Bubble {
+    constructor(x, y, size = null) {
+        this.x = x;
+        this.y = y;
+        this.size = size || (3 + Math.random() * 4); // 3-7像素
+        this.originalSize = this.size;
+        this.vy = -1 - Math.random() * 2; // 上浮速度 -1 到 -3
+        this.vx = (Math.random() - 0.5) * 0.5; // 轻微水平摆动
+        this.life = 1.0; // 生命值 1.0 到 0
+        this.fadeSpeed = 0.01 + Math.random() * 0.01; // 消失速度
+        this.wobble = Math.random() * Math.PI * 2; // 摆动相位
+        this.wobbleSpeed = 0.1 + Math.random() * 0.05; // 摆动速度
+    }
+
+    update() {
+        // 更新位置
+        this.y += this.vy;
+        this.wobble += this.wobbleSpeed;
+        this.x += Math.sin(this.wobble) * 0.3; // 左右摆动
+        
+        // 更新生命值和大小
+        this.life -= this.fadeSpeed;
+        this.size = this.originalSize * this.life; // 随生命值变小
+        
+        // 上浮速度逐渐减慢（模拟阻力）
+        this.vy *= 0.99;
+        
+        return this.life > 0 && this.size > 0.5; // 返回是否还存活
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.life * 0.6; // 透明度随生命值降低
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.strokeStyle = 'rgba(200, 220, 255, 0.4)';
+        ctx.lineWidth = 1;
+        
+        // 绘制圆形气泡
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        
+        // 添加高光效果
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.beginPath();
+        ctx.arc(this.x - this.size * 0.3, this.y - this.size * 0.3, this.size * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.restore();
+    }
+}
+
+class BubbleManager {
+    constructor(game) {
+        this.game = game;
+        this.bubbles = [];
+        this.maxBubbles = 50; // 限制最大气泡数量
+    }
+
+    spawnBubbles(x, y, count = 3) {
+        for (let i = 0; i < count; i++) {
+            if (this.bubbles.length >= this.maxBubbles) {
+                // 移除最老的气泡
+                this.bubbles.shift();
+            }
+            
+            // 在玩家脚部位置附近生成气泡，添加随机偏移
+            let offsetX = (Math.random() - 0.5) * 20;
+            let offsetY = Math.random() * 10;
+            this.bubbles.push(new Bubble(x + offsetX, y + offsetY));
+        }
+    }
+
+    update() {
+        // 更新所有气泡，移除已消失的
+        this.bubbles = this.bubbles.filter(bubble => bubble.update());
+    }
+
+    draw(ctx) {
+        // 按Y坐标排序，让远的气泡先画（实现深度效果）
+        this.bubbles.sort((a, b) => b.y - a.y);
+        
+        for (let bubble of this.bubbles) {
+            bubble.draw(ctx);
+        }
+    }
+
+    clear() {
+        this.bubbles = [];
+    }
+}
+
+class EntityManager {
+    constructor(game) {
+        this.game = game;
+        this.entities = [];
+        this.spawnTimer = 0;
+        this.lastDepthForSpawn = 0; // 记录上次生成时的深度
+        this.lastTreasureDepth = 0; // 记录上次宝箱生成深度
+    }
+
+    update() {
+        this.spawnTimer++;
+        
+        // 双重条件判断：每40帧 + 深度变化达到1米
+        let depthChangedEnough = Math.abs(this.game.player.depth - this.lastDepthForSpawn) >= 1;
+        
+        if ( depthChangedEnough) { 
+            this.spawnTimer = 0;
+            this.lastDepthForSpawn = this.game.player.depth; // 更新记录的深度
+            this.spawnEntity(); 
+        }
+
+        // 检查是否应该生成宝箱（每20米）
+        this.checkTreasureSpawn();
+
+        for (let i = this.entities.length - 1; i >= 0; i--) {
+            let e = this.entities[i];
+            e.x += e.vx; e.offset += 0.1;
+
+            let dist = Math.sqrt((this.game.player.x - e.x)**2 + (this.game.player.y - e.y)**2);
+            if (dist < 35) {
+                this.collect(e);
+                this.entities.splice(i, 1);
+                continue;
+            }
+            if (Math.abs(e.y - this.game.cameraY) > window.innerHeight * 1.5) this.entities.splice(i, 1);
+        }
+    }
+
+    checkTreasureSpawn() {
+        let depth = this.game.player.depth;
+        
+        // 每20米检查一次是否生成宝箱
+        if (depth >= 20 && Math.floor(depth / 20) > Math.floor(this.lastTreasureDepth / 20)) {
+            // 概率生成宝箱
+            console.log(`---ready gold box---`)
+            if (Math.random() < CONFIG.GOLD_BOX_PROBABILITY) {
+                this.spawnTreasure();
+            }
+            this.lastTreasureDepth = Math.floor(depth / 20) * 20; // 更新到最近的20米标记
+        }
+    }
+
+    spawnTreasure() {
+        let depth = this.game.player.depth;
+        let spawnY = this.game.cameraY + window.innerHeight + 100;
+        let spawnX = Math.random() * window.innerWidth;
+        
+        // 计算当前深度的普通金币价值
+        let baseCoinValue = 1;
+        if (depth > 50) baseCoinValue = 5;
+        if (depth > 120) baseCoinValue = 20;
+        
+        // 宝箱价值是当前深度金币价值的20倍
+        let treasureValue = baseCoinValue * CONFIG.GOLD_BOX_MULTIPLE;
+        
+        this.entities.push({
+            type: 'treasure', 
+            x: spawnX, 
+            y: spawnY, 
+            val: treasureValue, 
+            vx: 0, 
+            r: 15+(baseCoinValue*1.5), // 比普通金币大
+            offset: 0
+        });
+        
+        console.log(`宝箱生成! 深度:${depth.toFixed(1)}m 价值:${treasureValue}金币`);
+    }
+
+    spawnEntity() {
+        let depth = this.game.player.depth;
+        if (depth < 5) return; 
+        let type = Math.random();
+        let spawnY = this.game.cameraY + window.innerHeight + 100;
+        let spawnX = Math.random() * window.innerWidth;
+
+        if (type < 0.35) { 
+            let val = 1;
+            if (depth > 50) val = 5; if (depth > 120) val = 20;
+            this.entities.push({type: 'coin', x: spawnX, y: spawnY, val: val, vx: 0, r: 6, offset:0});
+        } else { 
+            let xp = 2;
+            let color = '#ff9800';
+            if (depth > 60) { xp = 5; color = '#e91e63'; }
+            if (depth > 150) { xp = 10; color = '#9c27b0'; }
+            this.entities.push({type: 'fish', x: spawnX, y: spawnY, xp: xp, vx: (Math.random()-0.5)*1.5, color: color, r: 10, offset: Math.random()*10});
+        }
+    }
+
+    collect(e) {
+        if (e.type === 'coin') {
+            this.game.player.coinsCollected += e.val;
+            this.game.toast(I18N.t('pickupCoins', e.val));
+            AudioSys.playCoin();
+        } else if (e.type === 'treasure') {
+            this.game.player.coinsCollected += e.val;
+            this.game.toast(I18N.t('foundTreasure', e.val));
+            // 播放特殊的宝箱音效
+            this.playTreasureSound();
+        } else if (e.type === 'fish') {
+            this.game.player.xpCollected += e.xp;
+            this.game.toast(I18N.t('observeFish', e.xp));
+            AudioSys.playSuccess();
+        }
+    }
+
+    playTreasureSound() {
+        // 播放宝箱发现的特殊音效
+        AudioSys.playTone(800, 'square', 0.2, 0.15);
+        setTimeout(() => AudioSys.playTone(1000, 'square', 0.2, 0.15), 100);
+        setTimeout(() => AudioSys.playTone(1200, 'square', 0.3, 0.2), 200);
+        setTimeout(() => AudioSys.playCoin(), 300);
+    }
+
+    draw(ctx) {
+        for (let e of this.entities) {
+            if (e.type === 'coin') {
+                ctx.beginPath();
+                ctx.fillStyle = '#ffd700'; ctx.arc(e.x, e.y, e.r, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+            } else if (e.type === 'treasure') {
+                // 绘制宝箱
+                this.drawTreasure(ctx, e);
+            } else {
+                ctx.fillStyle = e.color;
+                let tailOffset = Math.sin(e.offset) * 5;
+                ctx.save(); ctx.translate(e.x, e.y);
+                if (e.vx > 0) ctx.scale(-1, 1);
+                ctx.beginPath(); ctx.ellipse(0, 0, e.r*1.5, e.r, 0, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(e.r, 0); ctx.lineTo(e.r+8, -5+tailOffset/2); ctx.lineTo(e.r+8, 5+tailOffset/2); ctx.fill();
+                ctx.restore();
+            }
+        }
+    }
+
+    drawTreasure(ctx, treasure) {
+        const x = treasure.x;
+        const y = treasure.y;
+        const size = treasure.r;
+        const wobble = Math.sin(treasure.offset * 2) * 0.1; // 轻微摆动
+        
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(wobble);
+        
+        // 宝箱主体
+        const gradient = ctx.createLinearGradient(-size, -size, size, size);
+        gradient.addColorStop(0, '#8B4513'); // 棕色
+        gradient.addColorStop(0.5, '#D2691E'); // 巧克力色
+        gradient.addColorStop(1, '#654321'); // 深棕色
+        ctx.fillStyle = gradient;
+        ctx.fillRect(-size, -size/2, size*2, size);
+        
+        // 宝箱边框
+        ctx.strokeStyle = '#FFD700'; // 金色边框
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-size, -size/2, size*2, size);
+        
+        // 宝箱装饰
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(-size/4, -size/4, size/2, size/4); // 锁孔
+        
+        // 发光效果
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 10 + Math.sin(Date.now() * 0.003) * 5; // 动态发光
+        ctx.strokeStyle = '#FFFF00';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-size-2, -size/2-2, size*2+4, size+4);
+        
+        // // 价值标签
+        // ctx.shadowBlur = 0;
+        // ctx.fillStyle = '#FFFFFF';
+        // ctx.font = 'bold 10px Arial';
+        // ctx.textAlign = 'center';
+        // ctx.fillText(`${treasure.val}`, 0, -size-8);
+        
+        ctx.restore();
+    }
+    spawnInitialFish(count) {
+        // 在游戏开始时生成指定数量的鱼
+        for (let i = 0; i < count; i++) {
+            // 在玩家初始位置周围随机分布
+            let centerX = window.innerWidth / 2;
+            let centerY = 250; // 玩家初始Y位置
+            
+            // 随机分布范围：x方向 ±200像素，y方向 150-350像素
+            let spawnX = centerX + (Math.random() - 0.5) * 1200;
+            let spawnY = centerY + Math.random() * 1000;
+            
+            // 确保鱼不会生成在水面上
+            if (spawnY < 160) spawnY = 160;
+            
+            // 根据生成深度设置鱼的属性（浅水区域使用基础属性）
+            let xp = 2;
+            let color = '#ff9800'; // 橙色（基础颜色）
+            
+            let type = Math.random();
+            if (type < 0.25) { 
+                this.entities.push({type: 'coin', x: spawnX, y: spawnY, val: 1, vx: 0, r: 6, offset:0});
+            } else { 
+            // 创建鱼对象，使用与现有系统相同的结构
+                this.entities.push({
+                    type: 'fish', 
+                    x: spawnX, 
+                    y: spawnY, 
+                    xp: xp, 
+                    vx: (Math.random() - 0.5) * 1.5, // 随机水平速度
+                    color: color, 
+                    r: 10, // 半径
+                    offset: Math.random() * 10 // 动画偏移
+                });
+            }
+            
+        }
+    }
+
+    clear() { this.entities = []; }
+}
+
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        this.player = new Player(this);
+        this.entityManager = new EntityManager(this);
+        this.bubbleManager = new BubbleManager(this);
+        this.state = 'MENU';
+        this.cameraY = 0;
+        
+        // Set up language change event listener first
+        window.addEventListener('languageChanged', (e) => {
+            console.log('Language changed event received:', e.detail.lang);
+            this.updateAllText();
+        });
+        
+        // Initialize internationalization after setting up event listener
+        I18N.init();
+        
+        this.bindEvents();
+        this.setupSettingsEvents();
+        this.loop();
+    }
+
+    resize() { this.canvas.width = window.innerWidth; this.canvas.height = window.innerHeight; }
+
+    bindEvents() {
+        const handleInput = (e) => {
+            if (this.state !== 'DIVING') return;
+            if (e.target.tagName === 'BUTTON') return;
+            e.preventDefault();
+            let cx = e.touches ? e.touches[0].clientX : e.clientX;
+            let cy = e.touches ? e.touches[0].clientY : e.clientY;
+            let angle = Math.atan2(cy - (this.player.y - this.cameraY), cx - this.player.x);
+            this.player.applyForce(angle);
+        };
+        this.canvas.addEventListener('mousedown', handleInput);
+        this.canvas.addEventListener('touchstart', handleInput, {passive: false});
+    }
+
+    setupSettingsEvents() {
+        // Language selection
+        const languageSelect = document.getElementById('language-select');
+        languageSelect.addEventListener('change', (e) => {
+            I18N.setLanguage(e.target.value);
+            // Immediately update UI after language change
+            this.updateAllText();
+        });
+
+        // Reset data button
+        const resetBtn = document.getElementById('reset-data-btn');
+        resetBtn.addEventListener('click', () => {
+            document.getElementById('settings-menu').classList.add('hidden');
+            document.getElementById('reset-confirm').classList.remove('hidden');
+        });
+
+        // Initialize language select
+        languageSelect.value = I18N.currentLang;
+    }
+
+    openSettings() {
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('settings-menu').classList.remove('hidden');
+        document.getElementById('language-select').value = I18N.currentLang;
+    }
+
+    closeSettings() {
+        document.getElementById('settings-menu').classList.add('hidden');
+        document.getElementById('main-menu').classList.remove('hidden');
+    }
+
+    confirmReset() {
+        // Clear all localStorage data
+        localStorage.removeItem('freedive_hardcore_save');
+        localStorage.removeItem('freedive_language');
+        
+        // Reset game data
+        this.player.level = 1;
+        this.player.xp = 0;
+        this.player.totalCoins = 0;
+        this.player.bestDepth = 0;
+        this.player.finsLevel = 0;
+        this.player.saveData();
+        
+        // Reset language to default
+        I18N.init();
+        
+        // Hide confirm dialog and return to main menu
+        document.getElementById('reset-confirm').classList.add('hidden');
+        document.getElementById('main-menu').classList.remove('hidden');
+        
+        // Show confirmation message
+        this.toast(I18N.t('resetIrreversible'));
+        
+        // Update UI
+        this.updateAllText();
+    }
+
+    cancelReset() {
+        document.getElementById('reset-confirm').classList.add('hidden');
+        document.getElementById('settings-menu').classList.remove('hidden');
+    }
+
+    updateAllText() {
+        // Update main menu
+        document.querySelector('#main-menu h1').textContent = I18N.t('gameTitle');
+        document.querySelector('#main-menu p').textContent = I18N.t('hardcoreUpdate');
+        document.querySelector('#main-menu div[style*="font-size: 14px"]').innerHTML = I18N.t('instructions');
+        
+        // Update buttons
+        const startBtn = document.querySelector('#main-menu button[onclick*="startDive"]');
+        if (startBtn) startBtn.textContent = I18N.t('startDive');
+        
+        const settingsBtn = document.querySelector('#main-menu button[onclick*="openSettings"]');
+        if (settingsBtn) settingsBtn.textContent = I18N.t('settings');
+        
+        const shopBtn = document.querySelector('#main-menu button[onclick*="openShop"]');
+        if (shopBtn) shopBtn.textContent = I18N.t('equipmentShop');
+        
+        // Update HUD
+        document.querySelector('.hud-top div').innerHTML = 
+            `${I18N.t('depth')}: <span id="depth-display">0.0</span> m<br>` +
+            `${I18N.t('best')}: <span id="best-display">0.0</span> m`;
+        
+        document.querySelector('.hud-top div[style*="text-align: right"]').innerHTML = 
+            `Lv.<span id="level-display">1</span> <br>` +
+            `${I18N.t('coins')}: <span id="coin-display">0</span><br>` +
+            `${I18N.t('experience')}: <span id="xp-display">0</span>`;
+        
+        // Update HUD bars labels
+        const hudBars = document.querySelectorAll('.hud-bars div[style*="color:white"]');
+        if (hudBars[0]) hudBars[0].textContent = I18N.t('o2');
+        if (hudBars[1]) hudBars[1].textContent = I18N.t('earPressure');
+        if (hudBars[2]) hudBars[2].textContent = I18N.t('stamina');
+        
+        // Update shop
+        document.querySelector('#shop-menu h2').textContent = I18N.t('shopTitle');
+        document.querySelector('#shop-menu button').textContent = I18N.t('return');
+        
+        // Update settings
+        document.querySelector('#settings-menu h2').textContent = I18N.t('settingsTitle');
+        document.querySelector('#settings-menu label').textContent = I18N.t('language');
+        document.querySelector('#reset-data-btn').textContent = I18N.t('resetData');
+        document.querySelector('#settings-menu button[onclick*="closeSettings"]').textContent = I18N.t('return');
+        
+        // Update reset confirm dialog
+        document.querySelector('#reset-confirm h2').textContent = I18N.t('confirmResetTitle');
+        document.querySelector('#reset-confirm p[style*="color: #ffeb3b"]').textContent = I18N.t('resetWarning');
+        document.querySelector('#reset-confirm div[style*="text-align: left"]').innerHTML = I18N.t('resetItemList');
+        document.querySelector('#reset-confirm p[style*="color: #ff4444"]').textContent = I18N.t('resetIrreversible');
+        
+        const confirmBtn = document.querySelector('#reset-confirm button[onclick*="confirmReset"]');
+        if (confirmBtn) confirmBtn.textContent = I18N.t('confirmReset');
+        
+        const cancelBtn = document.querySelector('#reset-confirm button[onclick*="cancelReset"]');
+        if (cancelBtn) cancelBtn.textContent = I18N.t('cancel');
+        
+        // Update equalize button
+        document.getElementById('equalize-btn').innerHTML = I18N.t('equalizeBtn');
+        
+        // Update result menu
+        document.querySelector('#result-menu h2').textContent = I18N.t('diveEnded');
+        document.querySelector('#result-menu button').textContent = I18N.t('confirm');
+        
+        // Update recovery message
+        document.querySelector('#recovery-msg h2').textContent = I18N.t('recovering');
+        document.querySelector('#recovery-msg p').textContent = I18N.t('keepStill');
+        
+        // Update shop items
+        if (this.state === 'MENU') {
+            this.updateShopUI();
+        }
+    }
+
+    startDive() {
+        AudioSys.init();
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('result-menu').classList.add('hidden');
+        this.player.reset();
+        this.entityManager.clear();
+        // 在游戏开始时生成10条初始鱼
+        this.entityManager.spawnInitialFish(10);
+        this.state = 'DIVING';
+    }
+
+    triggerEqualize() {
+        this.state = 'EQUALIZING'; this.player.vx = 0; this.player.vy = 0;
+        document.getElementById('equalize-btn').classList.remove('hidden');
+        AudioSys.playAlert();
+    }
+
+    endEqualize() {
+        this.state = 'DIVING';
+        document.getElementById('equalize-btn').classList.add('hidden');
+    }
+
+    startRecovery() {
+        this.state = 'RECOVERY';
+        this.recoveryTimer = CONFIG.RECOVERY_TIME;
+        document.getElementById('recovery-msg').classList.remove('hidden');
+    }
+    
+    gameOver(reason) {
+        if (this.state === 'END') return;
+        this.state = 'END';
+        
+        // --- 修改点：死亡不给任何奖励 ---
+        console.log("Game Over - 所有临时收集清零");
+        
+        document.getElementById('result-title').innerText = I18N.t('challengeFailed');
+        document.getElementById('result-title').style.color = "#ff4444";
+        document.getElementById('result-desc').innerText = reason + "\n" + I18N.t('allLootLost');
+        
+        // 界面显示 0
+        this.fillResultUI(this.player.maxDepthThisDive, 0, 0);
+        
+        // 保存（虽然没有增加金币，但可能要保存其他状态，或者单纯为了更新BestDepth如果逻辑允许）
+        // 但这里 bestDepth 只有活着出来才算，所以甚至不需要保存
+        
+        document.getElementById('result-menu').classList.remove('hidden');
+        document.getElementById('recovery-msg').classList.add('hidden');
+        document.getElementById('equalize-btn').classList.add('hidden');
+    }
+
+    success() {
+        this.state = 'END';
+        document.getElementById('recovery-msg').classList.add('hidden');
+        AudioSys.playSuccess();
+        
+        let bonus = 1;
+        let isSafe = this.player.o2 >= (this.player.maxO2 * 0.33);
+        if (isSafe) bonus = 1.5;
+
+        // --- 修改点：成功才结算 ---
+        let depthXP = Math.floor(this.player.maxDepthThisDive * 2);
+        let totalXP = Math.floor((depthXP + this.player.xpCollected) * bonus);
+        let totalCoins = Math.floor(this.player.coinsCollected * bonus);
+
+        // 只有在这里才加到总数
+        this.player.xp += totalXP;
+        this.player.totalCoins += totalCoins;
+        
+        if (this.player.maxDepthThisDive > this.player.bestDepth) {
+            this.player.bestDepth = this.player.maxDepthThisDive;
+        }
+
+        console.log(`Success! Gained ${totalXP} XP and ${totalCoins} Coins.`);
+
+        this.player.checkLevelUp();
+        this.player.saveData();
+
+        document.getElementById('result-title').innerText = I18N.t('safeSurfacing');
+        document.getElementById('result-title').style.color = "#4caf50";
+        document.getElementById('result-desc').innerText = isSafe ? I18N.t('perfectRule') : I18N.t('successWarning');
+        
+        this.fillResultUI(this.player.maxDepthThisDive, totalCoins, totalXP);
+        document.getElementById('result-menu').classList.remove('hidden');
+    }
+
+    fillResultUI(depth, coins, xp) {
+        document.getElementById('res-depth').innerText = depth.toFixed(1);
+        document.getElementById('res-coins').innerText = coins;
+        document.getElementById('res-xp').innerText = xp;
+        
+        // Update result labels
+        const depthLabel = document.querySelector('#result-menu div p:nth-child(1)');
+        const coinsLabel = document.querySelector('#result-menu div p:nth-child(2)');
+        const xpLabel = document.querySelector('#result-menu div p:nth-child(3)');
+        
+        if (depthLabel) depthLabel.innerHTML = `${I18N.t('thisDepth')} <span id="res-depth" style="font-weight:bold;">${depth.toFixed(1)}</span>m`;
+        if (coinsLabel) coinsLabel.innerHTML = `${I18N.t('coinsGained')} <span id="res-coins">${coins}</span>`;
+        if (xpLabel) xpLabel.innerHTML = `${I18N.t('xpGained')} <span id="res-xp">${xp}</span>`;
+    }
+
+    openShop() {
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('shop-menu').classList.remove('hidden');
+        this.updateShopUI();
+    }
+    closeShop() {
+        document.getElementById('shop-menu').classList.add('hidden');
+        document.getElementById('main-menu').classList.remove('hidden');
+    }
+
+    updateShopUI() {
+        const list = document.getElementById('shop-list');
+        const finNames = I18N.t('fins');
+        list.innerHTML = `<div style="margin-bottom:10px; color:#ffeb3b">${I18N.t('currentCoins')} ${this.player.totalCoins}</div>`;
+        finNames.forEach((name, idx) => {
+            let item = document.createElement('div');
+            item.className = 'shop-item';
+            let bought = this.player.finsLevel >= idx;
+            let canBuy = this.player.totalCoins >= this.player.finCost[idx];
+            let btnText = bought ? I18N.t('equipped') : `${I18N.t('buy')} (${this.player.finCost[idx]})`;
+            if (bought && this.player.finsLevel > idx) btnText = I18N.t('owned');
+            
+            item.innerHTML = `<span>${name}</span><button class="shop-btn" id="shop-btn-${idx}">${btnText}</button>`;
+            list.appendChild(item);
+            
+            let btn = document.getElementById(`shop-btn-${idx}`);
+            if (bought) { btn.disabled = true; btn.style.background = "#555"; }
+            else if (!canBuy) { btn.disabled = true; }
+            else {
+                btn.onclick = () => {
+                    this.player.totalCoins -= this.player.finCost[idx];
+                    this.player.finsLevel = idx;
+                    this.player.saveData();
+                    this.updateShopUI();
+                    AudioSys.playCoin();
+                };
+            }
+        });
+    }
+
+    returnToMenu() {
+        document.getElementById('result-menu').classList.add('hidden');
+        document.getElementById('main-menu').classList.remove('hidden');
+        this.state = 'MENU';
+        this.player.reset();
+    }
+
+    toast(msg) {
+        const t = document.getElementById('msg-toast');
+        t.innerText = msg; t.style.opacity = 1; t.style.top = "30%";
+        setTimeout(() => { t.style.opacity = 0; t.style.top = "25%"; }, 2000);
+    }
+
+    update() {
+        if (this.state === 'MENU' || this.state === 'END') return;
+        if (this.state === 'RECOVERY') {
+            this.recoveryTimer--;
+            let pct = (1 - this.recoveryTimer / CONFIG.RECOVERY_TIME) * 100;
+            document.getElementById('recovery-bar').style.width = pct + "%";
+            if (this.recoveryTimer <= 0) this.success();
+            return;
+        }
+        this.player.update();
+        this.entityManager.update();
+        this.bubbleManager.update();
+        let targetCamY = this.player.y - window.innerHeight / 2;
+        if (targetCamY < 0) targetCamY = 0;
+        this.cameraY += (targetCamY - this.cameraY) * 0.1;
+        this.updateUI();
+    }
+
+    updateUI() {
+        document.getElementById('depth-display').innerText = this.player.depth.toFixed(1);
+        document.getElementById('best-display').innerText = this.player.bestDepth.toFixed(1);
+        let o2Pct = Math.max(0, (this.player.o2 / this.player.maxO2 * 100));
+        let o2Bar = document.getElementById('o2-bar');
+        o2Bar.style.width = o2Pct + "%";
+        o2Bar.style.background = o2Pct < 20 ? "#ff0000" : "#00ff00";
+        document.getElementById('stamina-bar').style.width = this.player.stamina + "%";
+        let pPct = this.player.pressure;
+        let pBar = document.getElementById('pressure-bar');
+        pBar.style.width = pPct + "%";
+        pBar.style.backgroundColor = pPct > 80 ? 'red' : '#ffaa00';
+        // 显示临时收集的金币
+        document.getElementById('coin-display').innerText = this.player.totalCoins + this.player.coinsCollected;
+        document.getElementById('xp-display').innerText = this.player.xp + this.player.xpCollected;
+        document.getElementById('level-display').innerText = this.player.level;
+    }
+
+    draw() {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.drawBackground();
+        this.ctx.save();
+        this.ctx.translate(0, -this.cameraY);
+        this.ctx.strokeStyle = 'rgba(255,255,255,0.5)'; this.ctx.lineWidth = 2;
+        this.ctx.beginPath(); this.ctx.moveTo(0, 150); this.ctx.lineTo(this.canvas.width, 150); this.ctx.stroke();
+        this.bubbleManager.draw(this.ctx);
+        this.entityManager.draw(this.ctx);
+        this.drawPlayer();
+        this.ctx.restore();
+    }
+
+    drawBackground() {
+        let depth = this.player.depth;
+        let maxColorDepth = 300; 
+        let factor = Math.min(depth / maxColorDepth, 1);
+        let r = 0;
+        let g = Math.floor(150 * (1 - factor));
+        let b = Math.floor(255 * (1 - factor*0.9));
+        let grad = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+        grad.addColorStop(0, `rgb(${r}, ${g}, ${b})`);
+        grad.addColorStop(1, `rgb(${r}, ${Math.max(0, g-50)}, ${Math.max(20, b-50)})`);
+        this.ctx.fillStyle = grad;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        if (depth < 40) {
+            this.ctx.fillStyle = `rgba(255,255,255, ${0.1 * (1 - depth/40)})`;
+            for(let i=0; i<3; i++) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.canvas.width * (0.3 + i*0.2), 0);
+                this.ctx.lineTo(this.canvas.width * (0.4 + i*0.2), this.canvas.height);
+                this.ctx.lineTo(this.canvas.width * (0.2 + i*0.2), this.canvas.height);
+                this.ctx.fill();
+            }
+        }
+    }
+
+    drawPlayer() {
+        const p = this.player; const ctx = this.ctx;
+        ctx.save(); ctx.translate(p.x, p.y);
+        let angle = Math.atan2(p.vy, p.vx) + Math.PI/2;
+        ctx.rotate(angle);
+        ctx.fillStyle = '#222'; ctx.beginPath(); ctx.ellipse(0, 0, 12, 24, 0, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#4fc3f7'; ctx.beginPath(); ctx.ellipse(0, -18, 6, 4, 0, 0, Math.PI*2); ctx.fill();
+        let finLen = 12 + p.finsLevel * p.finsLevel*2;
+        let finColor = ['#FAE6E6', '#4caf50', '#ffeb3b', '#1EFAF6', '#EDEDED', '#1F1F1F', '#C227A6'][p.finsLevel];
+        ctx.fillStyle = finColor;
+        ctx.beginPath(); ctx.moveTo(-6, 18); ctx.lineTo(-10, 18 + finLen); ctx.lineTo(-2, 18 + finLen); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(6, 18); ctx.lineTo(10, 18 + finLen); ctx.lineTo(2, 18 + finLen); ctx.fill();
+        if ((Math.abs(p.vx) > 0.5 || Math.abs(p.vy) > 0.5) && p.depth > 0) {
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.beginPath(); ctx.arc(0, 30 + finLen, 4 + Math.random()*2, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.restore();
+    }
+
+    loop() {
+        requestAnimationFrame(() => this.loop());
+        this.update();
+        this.draw();
+    }
+}
+const game = new Game();
+</script>
+</body>
+</html>
